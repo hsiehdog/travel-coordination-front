@@ -1,56 +1,92 @@
-## AI Control Center
+# Travel Coordination — Frontend
 
-Starter kit for AI-driven software that ships with:
+An AI-powered travel coordination app designed for executive assistants and self-assisted executives.
 
-- Next.js App Router + TypeScript + Tailwind CSS v4
-- shadcn/ui primitives for cards, forms, and chat
-- Better Auth (email/password) with secure session cookies and a Next.js route handler
-- Dashboard with usage, projects, activity timeline, and an AI chat surface
+The product helps people turn messy, fragmented travel information into a clear, structured trip that can be understood, explained, and acted on — without juggling emails, notes, calendars, and booking tools.
 
-## Quick start
+This repository contains the **Next.js frontend** for that experience.
+
+---
+
+## What this app is
+
+Business travel today is managed as disconnected transactions:
+- Flight confirmations in email
+- Hotel details in apps
+- Meeting info in calendars
+- Notes scattered across Slack and docs
+
+This app treats travel differently.
+
+### The core idea: **Trip as an Object**
+Instead of managing bookings, the app manages **the trip itself**:
+- Why the trip exists
+- When and where things happen
+- What decisions were made and why
+- What assumptions were inferred
+- Where the risks or tight windows are
+- What an executive needs to know right now
+
+The output is not a dashboard — it’s **clarity**.
+
+---
+
+## Who it’s for
+
+- **Executive assistants** coordinating high-value travel
+- **Founders and executives** who plan their own work trips
+- **Operators** who care more about outcomes than cheapest fares
+
+The UX is assistant-first, but usable by anyone acting as their own assistant.
+
+---
+
+## What the final product will do
+
+In its complete form, the app will:
+- Convert unstructured inputs (emails, notes, intent) into structured trips
+- Maintain a single, editable trip timeline (flights, lodging, meetings, notes)
+- Track assumptions, decisions, and changes over time
+- Generate executive-ready summaries (“what’s happening, what changed, what to do”)
+- Flag risks like tight windows or missing information
+- Act as a coordination layer — not a booking engine
+
+AI is used to **reason about the trip**, not just extract fields.
+
+---
+
+## Week-1 MVP: Magic Itinerary Reconstructor
+
+The first shippable feature proves the core thesis.
+
+### What it does
+A single-page experience where a user pastes a messy block of travel-related text (confirmation emails, notes, receipts) and gets back:
+- A 2–3 sentence executive summary
+- A clean, day-grouped itinerary
+- Basic “tight window” warnings based on schedule gaps
+- Explicit assumptions and missing information
+
+No booking.  
+No maps.  
+No integrations.  
+
+Just clarity from chaos.
+
+---
+
+## Architecture (high level)
+
+- Frontend: Next.js (App Router) + TypeScript + Tailwind
+- Backend: Express + Prisma + Better Auth + LLM endpoints
+- Auth: Secure cookie sessions via backend (Better Auth)
+- AI: Backend-owned prompting + strict schema validation
+
+The frontend never calls the LLM directly.
+
+---
+
+## Running locally
 
 ```bash
 pnpm install
 pnpm dev
-```
-
-Visit [http://localhost:3000](http://localhost:3000) for the marketing page, `/signup` or `/login` for auth, and `/dashboard` for the protected experience.
-
-## Backend integration
-
-This project assumes your backend owns the Better Auth instance (as outlined in [discussion #5578](https://github.com/better-auth/better-auth/discussions/5578)). Point `NEXT_PUBLIC_AUTH_BASE_URL` to that backend, ensure it exposes the Better Auth router at `NEXT_PUBLIC_AUTH_BASE_PATH`, and allow cross-origin credentials if the domains differ. The login/signup forms never touch a local auth route—they call the backend directly, which also has access to the real auth tables.
-
-## Environment variables
-
-Create a `.env.local` from the provided example.
-
-| Variable | Description |
-| --- | --- |
-| `NEXT_PUBLIC_APP_URL` | Public site URL for this frontend (used in marketing copy and fallbacks). |
-| `NEXT_PUBLIC_AUTH_BASE_URL` | Origin of your backend that runs Better Auth (e.g., `http://localhost:4000`). |
-| `NEXT_PUBLIC_AUTH_BASE_PATH` | Path segment for the Better Auth route on the backend (defaults to `/api/auth`). |
-| `NEXT_PUBLIC_API_BASE_URL` | Base URL for your backend/LLM API. When unset, the dashboard/chat use mocked responses. Requests include cookies, so enable CORS w/ credentials if this is a different origin. |
-
-Run the dev server with `pnpm dev`. The frontend talks to your backend-hosted Better Auth instance, which issues secure HTTP-only cookies that the browser sends automatically.
-
-## Architecture notes
-
-- `src/lib/auth/client.ts` points to your backend-hosted Better Auth instance (derived from `NEXT_PUBLIC_AUTH_BASE_URL`/`NEXT_PUBLIC_AUTH_BASE_PATH`) and exposes hooks/actions (`authClient.useSession`, `authClient.signIn.email`, etc.).
-- `src/lib/api-client.ts` centralizes backend calls. When `NEXT_PUBLIC_API_BASE_URL` is set the helper automatically includes the Better Auth session cookie (`credentials: "include"`).
-- React Query powers data access (`src/components/providers.tsx`) and shares caches between the dashboard and chat.
-- UI primitives live in `src/components/ui/*` (shadcn) and higher-level building blocks live under `src/components`.
-
-## Available scripts
-
-| Script | Description |
-| --- | --- |
-| `pnpm dev` | Start the Next.js dev server |
-| `pnpm build` | Create a production build |
-| `pnpm start` | Run the built app |
-| `pnpm lint` | Run ESLint |
-
-## Next steps
-
-- Replace the memory adapter with your database of choice (Prisma, Drizzle, etc.).
-- Point `NEXT_PUBLIC_API_BASE_URL` to your backend so the dashboard and chat call real services.
-- Extend the chat panel to stream tokens from your LLM provider or trigger workflows via function calling.

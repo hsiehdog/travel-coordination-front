@@ -1,4 +1,4 @@
-type HttpMethod = "GET" | "POST";
+type HttpMethod = "GET" | "POST" | "PATCH";
 
 export type UsageMetric = {
   id: string;
@@ -51,7 +51,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function request<T>(
   path: string,
   method: HttpMethod,
-  body?: Record<string, unknown>,
+  body?: Record<string, unknown>
 ): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error("API base URL is not configured.");
@@ -179,10 +179,14 @@ export async function fetchChatHistory(): Promise<ChatMessage[]> {
 
   const response = await request<{ sessions: AIChatResponse[] }>(
     "/users/me/sessions",
-    "GET",
+    "GET"
   );
   return (response.sessions || [])
-    .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt || 0).getTime() -
+        new Date(b.createdAt || 0).getTime()
+    )
     .flatMap((entry) => mapSessionToMessages(entry));
 }
 
@@ -203,14 +207,14 @@ export async function sendChatMessage(message: string): Promise<ChatMessage> {
     "POST",
     {
       prompt: message,
-    },
+    }
   );
 
   return mapToChatMessage(response.data);
 }
 
 export async function updateUserProfile(
-  payload: UpdateUserPayload,
+  payload: UpdateUserPayload
 ): Promise<void> {
   if (isMock) {
     await delay(300);
@@ -221,7 +225,7 @@ export async function updateUserProfile(
 }
 
 export async function changeUserPassword(
-  payload: ChangePasswordPayload,
+  payload: ChangePasswordPayload
 ): Promise<void> {
   if (isMock) {
     await delay(300);
@@ -233,7 +237,7 @@ export async function changeUserPassword(
 
 function mapToChatMessage(
   payload: AIChatResponse,
-  fallbackRole: ChatMessage["role"] = "assistant",
+  fallbackRole: ChatMessage["role"] = "assistant"
 ): ChatMessage {
   const content = payload.text ?? payload.response ?? payload.prompt ?? "";
   return {
@@ -255,8 +259,8 @@ function mapSessionToMessages(session: AIChatResponse): ChatMessage[] {
           text: session.prompt,
           createdAt: session.createdAt,
         },
-        "user",
-      ),
+        "user"
+      )
     );
   }
   messages.push(
@@ -266,8 +270,8 @@ function mapSessionToMessages(session: AIChatResponse): ChatMessage[] {
         text: session.response ?? session.text ?? "",
         createdAt: session.createdAt,
       },
-      "assistant",
-    ),
+      "assistant"
+    )
   );
   return messages;
 }

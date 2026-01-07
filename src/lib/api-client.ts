@@ -43,6 +43,87 @@ type AIChatResponse = {
   createdAt?: string;
 };
 
+export type ReconstructRequest = {
+  rawText: string;
+  client: {
+    timezone: string;
+    nowIso?: string;
+  };
+};
+
+export type ReconstructDateTimeField = {
+  localDate: string | null; // YYYY-MM-DD
+  localTime: string | null; // HH:mm
+  timezone: string | null; // IANA
+  iso: string | null; // ISO string
+};
+
+export type ReconstructItineraryItemKind =
+  | "FLIGHT"
+  | "LODGING"
+  | "MEETING"
+  | "MEAL"
+  | "TRANSPORT"
+  | "ACTIVITY"
+  | "NOTE"
+  | "OTHER";
+
+export type ReconstructItineraryItem = {
+  id: string;
+  kind: ReconstructItineraryItemKind;
+  title: string;
+  start: ReconstructDateTimeField;
+  end: ReconstructDateTimeField;
+  locationText: string | null;
+  isInferred: boolean;
+  confidence: number;
+  sourceSnippet: string | null;
+};
+
+export type ReconstructDay = {
+  dayIndex: number;
+  label: string;
+  localDate: string | null;
+  items: ReconstructItineraryItem[];
+};
+
+export type ReconstructRisk = {
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  title: string;
+  message: string;
+  itemIds: string[];
+};
+
+export type ReconstructAssumption = {
+  message: string;
+  relatedItemIds: string[];
+};
+
+export type ReconstructMissingInfo = {
+  prompt: string;
+  relatedItemIds: string[];
+};
+
+export type TripReconstruction = {
+  tripTitle: string;
+  executiveSummary: string;
+  destinationSummary: string;
+  dateRange: {
+    startLocalDate: string | null;
+    endLocalDate: string | null;
+    timezone: string;
+  };
+  days: ReconstructDay[];
+  risks: ReconstructRisk[];
+  assumptions: ReconstructAssumption[];
+  missingInfo: ReconstructMissingInfo[];
+  sourceStats: {
+    inputCharCount: number;
+    recognizedItemCount: number;
+    inferredItemCount: number;
+  };
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const isMock = !API_BASE_URL;
 
@@ -211,6 +292,112 @@ export async function sendChatMessage(message: string): Promise<ChatMessage> {
   );
 
   return mapToChatMessage(response.data);
+}
+
+export async function reconstructTrip(
+  payload: ReconstructRequest
+): Promise<TripReconstruction> {
+  if (isMock) {
+    await delay(650);
+    return {
+      tripTitle: "NYC Client Meetings",
+      executiveSummary:
+        "Two-day client meetings in New York with evening arrivals and a morning return. One tight connection risk; hotel check-in is assumed based on dates.",
+      destinationSummary: "New York, NY",
+      dateRange: {
+        startLocalDate: "2025-03-12",
+        endLocalDate: "2025-03-14",
+        timezone: "America/New_York",
+      },
+      days: [
+        {
+          dayIndex: 1,
+          label: "Wed, Mar 12",
+          localDate: "2025-03-12",
+          items: [
+            {
+              id: "itm_flt_1",
+              kind: "FLIGHT",
+              title: "Flight to JFK",
+              start: {
+                localDate: "2025-03-12",
+                localTime: "18:25",
+                timezone: "America/Los_Angeles",
+                iso: "2025-03-12T18:25:00-08:00",
+              },
+              end: {
+                localDate: "2025-03-13",
+                localTime: "02:45",
+                timezone: "America/New_York",
+                iso: "2025-03-13T02:45:00-05:00",
+              },
+              locationText: "LAX → JFK",
+              isInferred: false,
+              confidence: 0.92,
+              sourceSnippet: "Depart LAX 6:25 PM, arrive JFK 2:45 AM",
+            },
+          ],
+        },
+        {
+          dayIndex: 2,
+          label: "Thu, Mar 13",
+          localDate: "2025-03-13",
+          items: [
+            {
+              id: "itm_meet_1",
+              kind: "MEETING",
+              title: "Client kickoff meeting",
+              start: {
+                localDate: "2025-03-13",
+                localTime: "10:00",
+                timezone: "America/New_York",
+                iso: "2025-03-13T10:00:00-05:00",
+              },
+              end: {
+                localDate: "2025-03-13",
+                localTime: "11:30",
+                timezone: "America/New_York",
+                iso: "2025-03-13T11:30:00-05:00",
+              },
+              locationText: "Midtown Manhattan",
+              isInferred: false,
+              confidence: 0.88,
+              sourceSnippet: "Kickoff meeting 10:00–11:30 AM",
+            },
+          ],
+        },
+      ],
+      risks: [
+        {
+          severity: "MEDIUM",
+          title: "Potentially tight arrival window",
+          message:
+            "Arriving after midnight may compress rest before the 10:00 AM meeting.",
+          itemIds: ["itm_flt_1", "itm_meet_1"],
+        },
+      ],
+      assumptions: [
+        {
+          message: "Hotel check-in is assumed on Mar 12 based on arrival date.",
+          relatedItemIds: ["itm_flt_1"],
+        },
+      ],
+      missingInfo: [
+        {
+          prompt: "Which hotel will you be staying at in New York?",
+          relatedItemIds: [],
+        },
+      ],
+      sourceStats: {
+        inputCharCount: payload.rawText.length,
+        recognizedItemCount: 2,
+        inferredItemCount: 0,
+      },
+    };
+  }
+
+  // Your request<T> helper already includes credentials + JSON
+  return request<TripReconstruction>("/ai/reconstruct", "POST", payload as any);
 }
 
 export async function updateUserProfile(

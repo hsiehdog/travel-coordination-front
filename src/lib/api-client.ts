@@ -124,6 +124,42 @@ export type TripReconstruction = {
   };
 };
 
+export type Trip = {
+  id: string;
+  title: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TripSummary = {
+  id: string;
+  title: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  updatedAt: string;
+  latestRunAt: string | null;
+  latestRunStatus: "SUCCESS" | "FAILED" | null;
+};
+
+export type TripRun = {
+  id: string;
+  status: "SUCCESS" | "FAILED";
+  createdAt: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+export type TripDetailResponse = {
+  trip: Trip;
+  latestRun: {
+    id: string;
+    status: "SUCCESS";
+    createdAt: string;
+    outputJson: TripReconstruction;
+  } | null;
+  runs: TripRun[];
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const isMock = !API_BASE_URL;
 
@@ -223,6 +259,16 @@ const mockData = {
       createdAt: new Date().toISOString(),
     },
   ] satisfies ChatMessage[],
+  trips: [
+    {
+      id: "trip_1",
+      title: "NYC Client Meetings",
+      status: "ACTIVE",
+      updatedAt: new Date().toISOString(),
+      latestRunAt: new Date().toISOString(),
+      latestRunStatus: "SUCCESS",
+    },
+  ] satisfies TripSummary[],
 };
 
 export async function fetchUsageMetrics(): Promise<UsageMetric[]> {
@@ -398,6 +444,103 @@ export async function reconstructTrip(
 
   // Your request<T> helper already includes credentials + JSON
   return request<TripReconstruction>("/ai/reconstruct", "POST", payload as any);
+}
+
+export async function createTrip(title: string): Promise<{ trip: Trip }> {
+  if (isMock) {
+    await delay(250);
+    return {
+      trip: {
+        id: crypto.randomUUID(),
+        title,
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  return request<{ trip: Trip }>("/trips", "POST", { title });
+}
+
+export async function fetchTrips(): Promise<{ trips: TripSummary[] }> {
+  if (isMock) {
+    await delay(200);
+    return { trips: mockData.trips };
+  }
+
+  return request<{ trips: TripSummary[] }>("/trips", "GET");
+}
+
+export async function fetchTrip(tripId: string): Promise<TripDetailResponse> {
+  if (isMock) {
+    await delay(250);
+    return {
+      trip: {
+        id: tripId,
+        title: "NYC Client Meetings",
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      latestRun: {
+        id: "run_1",
+        status: "SUCCESS",
+        createdAt: new Date().toISOString(),
+        outputJson: await reconstructTrip({
+          rawText: "Mock text",
+          client: { timezone: "America/Los_Angeles" },
+        }),
+      },
+      runs: [
+        {
+          id: "run_1",
+          status: "SUCCESS",
+          createdAt: new Date().toISOString(),
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    };
+  }
+
+  return request<TripDetailResponse>(`/trips/${tripId}`, "GET");
+}
+
+export async function reconstructTripInTrip(
+  tripId: string,
+  payload: ReconstructRequest
+): Promise<TripReconstruction> {
+  if (isMock) {
+    await delay(650);
+    return reconstructTrip(payload);
+  }
+
+  return request<TripReconstruction>(
+    `/trips/${tripId}/reconstruct`,
+    "POST",
+    payload as any
+  );
+}
+
+export async function renameTrip(
+  tripId: string,
+  title: string
+): Promise<{ trip: Trip }> {
+  if (isMock) {
+    await delay(200);
+    return {
+      trip: {
+        id: tripId,
+        title,
+        status: "ACTIVE",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  return request<{ trip: Trip }>(`/trips/${tripId}`, "PATCH", { title });
 }
 
 export async function updateUserProfile(

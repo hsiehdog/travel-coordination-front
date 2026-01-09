@@ -17,7 +17,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { authClient } from "@/lib/auth/client";
 
-const links = [{ href: "/dashboard", label: "Dashboard" }];
+const links = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard/reconstruct", label: "Reconstruct" },
+  { href: "/dashboard/trips", label: "Trips" },
+];
 
 export function AppHeader() {
   const pathname = usePathname();

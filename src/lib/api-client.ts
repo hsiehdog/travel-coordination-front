@@ -78,6 +78,33 @@ export type ReconstructItineraryItem = {
   isInferred: boolean;
   confidence: number;
   sourceSnippet: string | null;
+  flight?: {
+    airlineName: string | null;
+    airlineCode: string | null;
+    flightNumber: string | null;
+    origin: string | null;
+    destination: string | null;
+    pnr: string | null;
+  } | null;
+  lodging?: {
+    name: string | null;
+    address: string | null;
+    checkIn: ReconstructDateTimeField | null;
+    checkOut: ReconstructDateTimeField | null;
+    confirmationNumber: string | null;
+  } | null;
+  meeting?: {
+    organizer: string | null;
+    attendees: string[] | null;
+    videoLink: string | null;
+    locationName: string | null;
+  } | null;
+  meal?: {
+    venue: string | null;
+    mealType: "BREAKFAST" | "LUNCH" | "DINNER" | "DRINKS" | "OTHER" | null;
+    reservationName: string | null;
+    confirmationNumber: string | null;
+  } | null;
 };
 
 export type ReconstructDay = {
@@ -122,6 +149,14 @@ export type TripReconstruction = {
     recognizedItemCount: number;
     inferredItemCount: number;
   };
+  _meta?: {
+    rawText?: {
+      rawTextTruncated?: boolean;
+      rawTextOriginalChars?: number;
+      rawTextKeptChars?: number;
+      rawTextOmittedChars?: number;
+    };
+  };
 };
 
 export type Trip = {
@@ -149,6 +184,30 @@ export type TripRun = {
   errorMessage?: string | null;
 };
 
+export type TripItem = {
+  id: string;
+  kind: ReconstructItineraryItemKind;
+  title: string;
+  startIso: string | null;
+  endIso: string | null;
+  timezone: string | null;
+  startTimezone: string | null;
+  endTimezone: string | null;
+  startLocalDate: string | null;
+  startLocalTime: string | null;
+  endLocalDate: string | null;
+  endLocalTime: string | null;
+  locationText: string | null;
+  isInferred: boolean;
+  confidence: number;
+  sourceSnippet: string | null;
+  state: "PROPOSED" | "CONFIRMED" | "DISMISSED";
+  source: "AI" | "USER" | "CALENDAR" | "EMAIL";
+  fingerprint: string;
+  metadata: Record<string, unknown> | null;
+  updatedAt: string;
+};
+
 export type TripDetailResponse = {
   trip: Trip;
   latestRun: {
@@ -158,6 +217,7 @@ export type TripDetailResponse = {
     outputJson: TripReconstruction;
   } | null;
   runs: TripRun[];
+  tripItems: TripItem[];
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -475,6 +535,35 @@ export async function fetchTrips(): Promise<{ trips: TripSummary[] }> {
 export async function fetchTrip(tripId: string): Promise<TripDetailResponse> {
   if (isMock) {
     await delay(250);
+    const mockOutput = await reconstructTrip({
+      rawText: "Mock text",
+      client: { timezone: "America/Los_Angeles" },
+    });
+      const mockItems: TripItem[] = mockOutput.days.flatMap((day) =>
+      day.items.map((item, index) => ({
+        id: `${item.id}-${index}`,
+        kind: item.kind,
+        title: item.title,
+        startIso: item.start.iso,
+        endIso: item.end.iso,
+        timezone: item.start.timezone ?? item.end.timezone,
+        startTimezone: item.start.timezone,
+        endTimezone: item.end.timezone,
+        startLocalDate: item.start.localDate,
+        startLocalTime: item.start.localTime,
+        endLocalDate: item.end.localDate,
+        endLocalTime: item.end.localTime,
+        locationText: item.locationText,
+        isInferred: item.isInferred,
+        confidence: item.confidence,
+        sourceSnippet: item.sourceSnippet,
+        state: "PROPOSED",
+        source: "AI",
+        fingerprint: `${item.id}-fp`,
+        metadata: null,
+        updatedAt: new Date().toISOString(),
+      }))
+    );
     return {
       trip: {
         id: tripId,
@@ -487,10 +576,7 @@ export async function fetchTrip(tripId: string): Promise<TripDetailResponse> {
         id: "run_1",
         status: "SUCCESS",
         createdAt: new Date().toISOString(),
-        outputJson: await reconstructTrip({
-          rawText: "Mock text",
-          client: { timezone: "America/Los_Angeles" },
-        }),
+        outputJson: mockOutput,
       },
       runs: [
         {
@@ -501,6 +587,7 @@ export async function fetchTrip(tripId: string): Promise<TripDetailResponse> {
           errorMessage: null,
         },
       ],
+      tripItems: mockItems,
     };
   }
 

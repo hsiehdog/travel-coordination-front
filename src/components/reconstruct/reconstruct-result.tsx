@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type {
   TripReconstruction,
   ReconstructItineraryItem,
@@ -31,9 +32,26 @@ function fmtDT(dt: {
   return dt.iso ?? "Unknown";
 }
 
-export function ReconstructResult({ data }: { data: TripReconstruction }) {
+export function ReconstructResult({
+  data,
+  itineraryOverride,
+}: {
+  data: TripReconstruction;
+  itineraryOverride?: TripReconstruction["days"];
+}) {
+  const truncation = data._meta?.rawText;
+  const days = itineraryOverride ?? data.days;
   return (
     <div className="space-y-6">
+      {truncation?.rawTextTruncated ? (
+        <Alert>
+          <AlertTitle>Source text was truncated</AlertTitle>
+          <AlertDescription>
+            The latest input was capped to keep the newest content. Omitted{" "}
+            {truncation.rawTextOmittedChars ?? "some"} characters.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>{data.tripTitle}</CardTitle>
@@ -86,7 +104,7 @@ export function ReconstructResult({ data }: { data: TripReconstruction }) {
           <CardDescription>Day-grouped timeline.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {data.days.map((day) => (
+          {days.map((day) => (
             <div key={day.dayIndex} className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="text-sm font-semibold">{day.label}</div>
@@ -159,6 +177,11 @@ export function ReconstructResult({ data }: { data: TripReconstruction }) {
 }
 
 function ItemCard({ item }: { item: ReconstructItineraryItem }) {
+  const flight = item.flight ?? null;
+  const lodging = item.lodging ?? null;
+  const meeting = item.meeting ?? null;
+  const meal = item.meal ?? null;
+
   return (
     <div className="rounded-xl border p-4 space-y-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -185,6 +208,61 @@ function ItemCard({ item }: { item: ReconstructItineraryItem }) {
           <div>End: {fmtDT(item.end)}</div>
         </div>
       </div>
+
+      {flight ? (
+        <div className="text-xs text-muted-foreground">
+          {flight.airlineName || flight.airlineCode || flight.flightNumber ? (
+            <div>
+              Flight:{" "}
+              {[flight.airlineName, flight.airlineCode, flight.flightNumber]
+                .filter(Boolean)
+                .join(" ")}
+            </div>
+          ) : null}
+          {flight.origin || flight.destination ? (
+            <div>
+              Route: {[flight.origin, flight.destination].filter(Boolean).join(" → ")}
+            </div>
+          ) : null}
+          {flight.pnr ? <div>PNR: {flight.pnr}</div> : null}
+        </div>
+      ) : null}
+
+      {lodging ? (
+        <div className="text-xs text-muted-foreground">
+          {lodging.name ? <div>Lodging: {lodging.name}</div> : null}
+          {lodging.address ? <div>Address: {lodging.address}</div> : null}
+          {lodging.confirmationNumber ? (
+            <div>Confirmation: {lodging.confirmationNumber}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {meeting ? (
+        <div className="text-xs text-muted-foreground">
+          {meeting.organizer ? <div>Organizer: {meeting.organizer}</div> : null}
+          {meeting.locationName ? (
+            <div>Location: {meeting.locationName}</div>
+          ) : null}
+          {meeting.videoLink ? <div>Video link: {meeting.videoLink}</div> : null}
+          {meeting.attendees?.length ? (
+            <div>Attendees: {meeting.attendees.join(", ")}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {meal ? (
+        <div className="text-xs text-muted-foreground">
+          {meal.venue ? <div>Venue: {meal.venue}</div> : null}
+          {meal.mealType ? <div>Meal: {meal.mealType}</div> : null}
+          {meal.reservationName ? (
+            <div>Reservation: {meal.reservationName}</div>
+          ) : null}
+          {meal.confirmationNumber ? (
+            <div>Confirmation: {meal.confirmationNumber}</div>
+          ) : null}
+        </div>
+      ) : null}
 
       {item.sourceSnippet ? (
         <div className="text-xs text-muted-foreground border-l pl-3">

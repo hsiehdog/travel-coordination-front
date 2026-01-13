@@ -18,6 +18,9 @@ import {
   fetchTrip,
   reconstructTripInTrip,
   renameTrip,
+  type ReconstructDay,
+  type ReconstructItineraryItem,
+  type TripItem,
   type TripRun,
 } from "@/lib/api-client";
 
@@ -29,6 +32,114 @@ function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function parseIsoDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDayLabel(dateValue: string) {
+  const parsed = parseIsoDate(dateValue);
+  if (!parsed) return dateValue;
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function buildDateKey(item: TripItem) {
+  if (item.startLocalDate) return item.startLocalDate;
+  if (item.startIso) return item.startIso.slice(0, 10);
+  return "Unscheduled";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractAiDetails(
+  item: TripItem
+): Partial<
+  Pick<ReconstructItineraryItem, "flight" | "lodging" | "meeting" | "meal">
+> | null {
+  if (!item.metadata || !isRecord(item.metadata)) return null;
+  const ai = isRecord(item.metadata.ai) ? item.metadata.ai : null;
+  if (!ai || !isRecord(ai)) return null;
+
+  const details: Record<string, unknown> = {};
+  if (isRecord(ai.flight)) details.flight = ai.flight;
+  if (isRecord(ai.lodging)) details.lodging = ai.lodging;
+  if (isRecord(ai.meeting)) details.meeting = ai.meeting;
+  if (isRecord(ai.meal)) details.meal = ai.meal;
+
+  return Object.keys(details).length ? details : null;
+}
+
+function sortTripItems(a: TripItem, b: TripItem) {
+  const aIso = a.startIso ? Date.parse(a.startIso) : Number.POSITIVE_INFINITY;
+  const bIso = b.startIso ? Date.parse(b.startIso) : Number.POSITIVE_INFINITY;
+  if (aIso !== bIso) return aIso - bIso;
+  const aTime = a.startLocalTime ?? "";
+  const bTime = b.startLocalTime ?? "";
+  if (aTime !== bTime) return aTime.localeCompare(bTime);
+  return a.title.localeCompare(b.title);
+}
+
+function mapTripItemsToDays(items: TripItem[]): ReconstructDay[] {
+  const visibleItems = items.filter((item) => item.state !== "DISMISSED");
+  const byDay = new Map<string, TripItem[]>();
+
+  visibleItems.forEach((item) => {
+    const key = buildDateKey(item);
+    const list = byDay.get(key) ?? [];
+    list.push(item);
+    byDay.set(key, list);
+  });
+
+  const sortedKeys = Array.from(byDay.keys()).sort((a, b) => {
+    if (a === "Unscheduled") return 1;
+    if (b === "Unscheduled") return -1;
+    return a.localeCompare(b);
+  });
+
+  return sortedKeys.map((key, index) => {
+    const itemsForDay = (byDay.get(key) ?? []).sort(sortTripItems);
+    return {
+      dayIndex: index + 1,
+      label: key === "Unscheduled" ? "Unscheduled" : formatDayLabel(key),
+      localDate: key === "Unscheduled" ? null : key,
+      items: itemsForDay.map((item) => {
+        const aiDetails = extractAiDetails(item);
+        return {
+          id: item.fingerprint || item.id,
+          kind: item.kind,
+          title: item.title,
+          start: {
+            localDate: item.startLocalDate,
+            localTime: item.startLocalTime,
+            timezone: item.startTimezone ?? item.timezone,
+            iso: item.startIso,
+          },
+          end: {
+            localDate: item.endLocalDate,
+            localTime: item.endLocalTime,
+            timezone: item.endTimezone ?? item.timezone,
+            iso: item.endIso,
+          },
+          locationText: item.locationText,
+          isInferred: item.isInferred,
+          confidence: item.confidence,
+          sourceSnippet: item.sourceSnippet,
+          flight: aiDetails?.flight ?? null,
+          lodging: aiDetails?.lodging ?? null,
+          meeting: aiDetails?.meeting ?? null,
+          meal: aiDetails?.meal ?? null,
+        };
+      }),
+    };
+  });
 }
 
 export default function TripDetailPage() {
@@ -77,6 +188,10 @@ export default function TripDetailPage() {
 
   const trip = tripQuery.data?.trip;
   const latestOutput = tripQuery.data?.latestRun?.outputJson ?? null;
+  const tripItems = tripQuery.data?.tripItems ?? [];
+  const itineraryOverride = tripItems.length
+    ? mapTripItemsToDays(tripItems)
+    : undefined;
 
   return (
     <ProtectedRoute>
@@ -195,7 +310,10 @@ export default function TripDetailPage() {
           </Card>
 
           {latestOutput ? (
-            <ReconstructResult data={latestOutput} />
+            <ReconstructResult
+              data={latestOutput}
+              itineraryOverride={itineraryOverride}
+            />
           ) : (
             <Card>
               <CardHeader>

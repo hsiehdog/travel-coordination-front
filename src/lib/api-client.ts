@@ -51,6 +51,15 @@ export type ReconstructRequest = {
   };
 };
 
+export type TripIngestRequest = {
+  rawUpdateText: string;
+  client: {
+    timezone: string;
+    nowIso?: string;
+  };
+  mode?: "patch" | "rebuild";
+};
+
 export type ReconstructDateTimeField = {
   localDate: string | null; // YYYY-MM-DD
   localTime: string | null; // HH:mm
@@ -78,6 +87,7 @@ export type ReconstructItineraryItem = {
   isInferred: boolean;
   confidence: number;
   sourceSnippet: string | null;
+  state?: "PROPOSED" | "CONFIRMED" | "CANCELLED" | "DISMISSED";
   flight?: {
     airlineName: string | null;
     airlineCode: string | null;
@@ -201,7 +211,7 @@ export type TripItem = {
   isInferred: boolean;
   confidence: number;
   sourceSnippet: string | null;
-  state: "PROPOSED" | "CONFIRMED" | "DISMISSED";
+  state: "PROPOSED" | "CONFIRMED" | "CANCELLED" | "DISMISSED";
   source: "AI" | "USER" | "CALENDAR" | "EMAIL";
   fingerprint: string;
   metadata: Record<string, unknown> | null;
@@ -219,6 +229,31 @@ export type TripDetailResponse = {
   runs: TripRun[];
   tripItems: TripItem[];
 };
+
+export type PendingActionCandidate = {
+  itemId: string;
+  kind: ReconstructItineraryItemKind;
+  title: string;
+  localDate: string | null;
+  localTime: string | null;
+  locationText: string | null;
+  state: TripItem["state"];
+  reason: string;
+};
+
+export type TripIngestResponse =
+  | {
+      status: "APPLIED";
+      mode: "patch" | "rebuild";
+      tripItems: TripItem[];
+      changedItemIds: string[];
+    }
+  | {
+      status: "NEEDS_CLARIFICATION";
+      pendingActionId: string;
+      intentType: "UPDATE" | "CANCEL" | "REPLACE" | "UNKNOWN";
+      candidates: PendingActionCandidate[];
+    };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const isMock = !API_BASE_URL;
@@ -607,6 +642,50 @@ export async function reconstructTripInTrip(
     `/trips/${tripId}/reconstruct`,
     "POST",
     payload as any
+  );
+}
+
+export async function ingestTripDetails(
+  tripId: string,
+  payload: TripIngestRequest
+): Promise<TripIngestResponse> {
+  if (isMock) {
+    await delay(650);
+    return {
+      status: "APPLIED",
+      mode: payload.mode ?? "patch",
+      tripItems: mockData.trips.length
+        ? []
+        : [],
+      changedItemIds: [],
+    };
+  }
+
+  return request<TripIngestResponse>(
+    `/trips/${tripId}/ingest`,
+    "POST",
+    payload as any
+  );
+}
+
+export async function resolvePendingAction(
+  pendingActionId: string,
+  selectedItemId: string
+): Promise<TripIngestResponse> {
+  if (isMock) {
+    await delay(400);
+    return {
+      status: "APPLIED",
+      mode: "patch",
+      tripItems: [],
+      changedItemIds: [selectedItemId],
+    };
+  }
+
+  return request<TripIngestResponse>(
+    `/pending-actions/${pendingActionId}/resolve`,
+    "POST",
+    { selectedItemId }
   );
 }
 

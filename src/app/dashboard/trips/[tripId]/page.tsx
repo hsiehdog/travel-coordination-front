@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import { ProtectedRoute } from "@/components/auth/protected-route";
@@ -16,10 +16,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ReconstructResult } from "@/components/reconstruct/reconstruct-result";
 import {
   fetchTrip,
-  reconstructTripInTrip,
+  ingestTripDetails,
+  resolvePendingAction,
   renameTrip,
   type ReconstructDay,
   type ReconstructItineraryItem,
+  type TripReconstruction,
+  type PendingActionCandidate,
   type TripItem,
   type TripRun,
 } from "@/lib/api-client";
@@ -132,6 +135,7 @@ function mapTripItemsToDays(items: TripItem[]): ReconstructDay[] {
           isInferred: item.isInferred,
           confidence: item.confidence,
           sourceSnippet: item.sourceSnippet,
+          state: item.state,
           flight: aiDetails?.flight ?? null,
           lodging: aiDetails?.lodging ?? null,
           meeting: aiDetails?.meeting ?? null,
@@ -142,12 +146,60 @@ function mapTripItemsToDays(items: TripItem[]): ReconstructDay[] {
   });
 }
 
+function buildFallbackReconstruction(args: {
+  tripTitle?: string;
+  timezone: string;
+  days: ReconstructDay[];
+  items: TripItem[];
+}): TripReconstruction {
+  const dates = args.days
+    .map((day) => day.localDate)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  const startLocalDate = dates[0] ?? null;
+  const endLocalDate = dates[dates.length - 1] ?? null;
+  const inferredCount = args.items.filter((item) => item.isInferred).length;
+
+  return {
+    tripTitle: args.tripTitle ?? "Trip",
+    executiveSummary: "Trip details updated. See itinerary below.",
+    destinationSummary: "Destination unknown.",
+    dateRange: {
+      startLocalDate,
+      endLocalDate,
+      timezone: args.timezone,
+    },
+    days: args.days,
+    risks: [],
+    assumptions: [],
+    missingInfo: [],
+    sourceStats: {
+      inputCharCount: 0,
+      recognizedItemCount: args.items.length,
+      inferredItemCount: inferredCount,
+    },
+  };
+}
+
 export default function TripDetailPage() {
   const params = useParams<{ tripId: string }>();
   const tripId = params.tripId;
   const tz = useMemo(() => getClientTimezone(), []);
+  const queryClient = useQueryClient();
 
   const [appendText, setAppendText] = useState("");
+  const [rebuildFromScratch, setRebuildFromScratch] = useState(false);
+  const [forcePatch, setForcePatch] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    pendingActionId: string;
+    intentType: "UPDATE" | "CANCEL" | "REPLACE" | "UNKNOWN";
+    candidates: PendingActionCandidate[];
+  } | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
+    null
+  );
+  const [lastReconstruction, setLastReconstruction] =
+    useState<TripReconstruction | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
 
@@ -156,18 +208,43 @@ export default function TripDetailPage() {
     queryFn: () => fetchTrip(tripId),
   });
 
-  const reconstructMutation = useMutation({
+  const ingestMutation = useMutation({
     mutationFn: (payload: { rawText: string }) =>
-      reconstructTripInTrip(tripId, {
-        rawText: payload.rawText,
+      ingestTripDetails(tripId, {
+        rawUpdateText: payload.rawText,
         client: {
           timezone: tz,
           nowIso: new Date().toISOString(),
         },
+        mode: rebuildFromScratch ? "rebuild" : forcePatch ? "patch" : undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      if (response.status === "NEEDS_CLARIFICATION") {
+        setPendingAction({
+          pendingActionId: response.pendingActionId,
+          intentType: response.intentType,
+          candidates: response.candidates,
+        });
+        setSelectedCandidateId(null);
+        return;
+      }
+      setPendingAction(null);
+      setSelectedCandidateId(null);
       setAppendText("");
-      tripQuery.refetch();
+      queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+    },
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: (payload: { pendingActionId: string; selectedItemId: string }) =>
+      resolvePendingAction(payload.pendingActionId, payload.selectedItemId),
+    onSuccess: (response) => {
+      if (response.status === "APPLIED") {
+        setPendingAction(null);
+        setSelectedCandidateId(null);
+        setAppendText("");
+        queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+      }
     },
   });
 
@@ -182,8 +259,8 @@ export default function TripDetailPage() {
 
   const onSubmitAppend = async () => {
     const text = appendText.trim();
-    if (!text || reconstructMutation.isPending) return;
-    await reconstructMutation.mutateAsync({ rawText: text });
+    if (!text || ingestMutation.isPending) return;
+    await ingestMutation.mutateAsync({ rawText: text });
   };
 
   const trip = tripQuery.data?.trip;
@@ -192,6 +269,22 @@ export default function TripDetailPage() {
   const itineraryOverride = tripItems.length
     ? mapTripItemsToDays(tripItems)
     : undefined;
+  useEffect(() => {
+    if (latestOutput) {
+      setLastReconstruction(latestOutput);
+    }
+  }, [latestOutput, tripId]);
+
+  const fallbackOutput =
+    !latestOutput && itineraryOverride
+      ? buildFallbackReconstruction({
+          tripTitle: trip?.title,
+          timezone: tz,
+          days: itineraryOverride,
+          items: tripItems,
+        })
+      : null;
+  const displayOutput = latestOutput ?? lastReconstruction ?? fallbackOutput;
 
   return (
     <ProtectedRoute>
@@ -269,7 +362,7 @@ export default function TripDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Append new travel details</CardTitle>
+              <CardTitle>Add or update trip details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <Textarea
@@ -281,37 +374,109 @@ export default function TripDetailPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   onClick={onSubmitAppend}
-                  disabled={!appendText.trim() || reconstructMutation.isPending}
+                  disabled={!appendText.trim() || ingestMutation.isPending}
                 >
-                  {reconstructMutation.isPending ? (
+                  {ingestMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Re-running…
+                      Applying…
                     </>
                   ) : (
-                    "Re-run reconstruction"
+                    "Apply update"
                   )}
                 </Button>
                 <div className="text-sm text-muted-foreground">
                   Client timezone: <span className="font-medium">{tz}</span>
                 </div>
               </div>
-              {reconstructMutation.isError ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={rebuildFromScratch ? "default" : "outline"}
+                  onClick={() => {
+                    setRebuildFromScratch((prev) => !prev);
+                    setForcePatch(false);
+                  }}
+                >
+                  Rebuild from scratch
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={forcePatch ? "default" : "outline"}
+                  onClick={() => {
+                    setForcePatch((prev) => !prev);
+                    setRebuildFromScratch(false);
+                  }}
+                >
+                  Force patch (advanced)
+                </Button>
+              </div>
+              {ingestMutation.isError ? (
                 <Alert variant="destructive">
-                  <AlertTitle>Couldn’t reconstruct</AlertTitle>
+                  <AlertTitle>Couldn’t apply update</AlertTitle>
                   <AlertDescription>
-                    {reconstructMutation.error instanceof Error
-                      ? reconstructMutation.error.message
-                      : "Reconstruction failed."}
+                    {ingestMutation.error instanceof Error
+                      ? ingestMutation.error.message
+                      : "Update failed."}
                   </AlertDescription>
                 </Alert>
               ) : null}
             </CardContent>
           </Card>
 
-          {latestOutput ? (
+          {pendingAction ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Which item should be updated?</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  We need clarification to apply the update. Choose the best match.
+                </div>
+                <div className="space-y-2">
+                  {pendingAction.candidates.map((candidate) => (
+                    <button
+                      key={candidate.itemId}
+                      type="button"
+                      onClick={() => setSelectedCandidateId(candidate.itemId)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                        selectedCandidateId === candidate.itemId
+                          ? "border-primary bg-primary/10"
+                          : "border-border"
+                      }`}
+                    >
+                      <div className="font-medium">{candidate.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {candidate.kind} · {candidate.localDate ?? "No date"}{" "}
+                        {candidate.localTime ?? ""}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {candidate.reason}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  onClick={() => {
+                    if (!selectedCandidateId) return;
+                    resolveMutation.mutate({
+                      pendingActionId: pendingAction.pendingActionId,
+                      selectedItemId: selectedCandidateId,
+                    });
+                  }}
+                  disabled={!selectedCandidateId || resolveMutation.isPending}
+                >
+                  {resolveMutation.isPending ? "Applying…" : "Apply selection"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {displayOutput ? (
             <ReconstructResult
-              data={latestOutput}
+              data={displayOutput}
               itineraryOverride={itineraryOverride}
             />
           ) : (

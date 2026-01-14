@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 import type {
   TripReconstruction,
   ReconstructItineraryItem,
@@ -30,6 +31,16 @@ function fmtDT(dt: {
     }`;
   }
   return dt.iso ?? "Unknown";
+}
+
+function formatDayLabel(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function ReconstructResult({
@@ -107,10 +118,9 @@ export function ReconstructResult({
           {days.map((day) => (
             <div key={day.dayIndex} className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="text-sm font-semibold">{day.label}</div>
-                {day.localDate ? (
-                  <Badge variant="outline">{day.localDate}</Badge>
-                ) : null}
+                <div className="text-sm font-semibold">
+                  {day.localDate ? formatDayLabel(day.localDate) : day.label}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -181,9 +191,15 @@ function ItemCard({ item }: { item: ReconstructItineraryItem }) {
   const lodging = item.lodging ?? null;
   const meeting = item.meeting ?? null;
   const meal = item.meal ?? null;
+  const isCancelled = item.state === "CANCELLED";
 
   return (
-    <div className="rounded-xl border p-4 space-y-2">
+    <div
+      className={cn(
+        "rounded-xl border p-4 space-y-2",
+        isCancelled && "opacity-70"
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -191,11 +207,14 @@ function ItemCard({ item }: { item: ReconstructItineraryItem }) {
             {item.isInferred ? (
               <Badge variant="secondary">Inferred</Badge>
             ) : null}
+            {isCancelled ? <Badge variant="outline">Cancelled</Badge> : null}
             <span className="text-sm text-muted-foreground">
               {Math.round(item.confidence * 100)}%
             </span>
           </div>
-          <div className="font-semibold">{item.title}</div>
+          <div className={cn("font-semibold", isCancelled && "line-through")}>
+            {item.title}
+          </div>
           {item.locationText ? (
             <div className="text-sm text-muted-foreground">
               {item.locationText}
